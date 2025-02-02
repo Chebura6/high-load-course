@@ -46,13 +46,8 @@ class PaymentExternalSystemAdapterImpl(
 
     private val fixedRateLimiter = FixedWindowRateLimiter(rateLimitPerSec, 1, TimeUnit.MILLISECONDS)
     private val nonBlockingOngoingWindow = NonBlockingOngoingWindow(parallelRequests)
-    private val httpCallExecutor =
-        Executors.newFixedThreadPool(parallelRequests, NamedThreadFactory("http-call-executor"))
 
     override fun performPaymentAsync(paymentId: UUID, amount: Int, paymentStartedAt: Long, deadline: Long) {
-        fixedRateLimiter.tickBlocking()
-        nonBlockingOngoingWindow.putIntoWindow()
-
         logger.warn("[$accountName] Submitting payment request for payment $paymentId")
 
         val transactionId = UUID.randomUUID()
@@ -70,7 +65,9 @@ class PaymentExternalSystemAdapterImpl(
         }.build()
 
         var success = false
-        while (!success && System.currentTimeMillis() < deadline - requestAverageProcessingTime.toMillis()) {
+        while (!success && now() < deadline - requestAverageProcessingTime.toMillis()) {
+            fixedRateLimiter.tickBlocking()
+            nonBlockingOngoingWindow.putIntoWindow()
             client.newCall(request).enqueue(
                 object : Callback {
                     override fun onResponse(call: Call, response: Response) {
@@ -121,7 +118,6 @@ class PaymentExternalSystemAdapterImpl(
                     }
                 },
             )
-
         }
     }
 
