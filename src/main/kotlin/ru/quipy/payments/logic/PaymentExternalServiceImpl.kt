@@ -15,6 +15,7 @@ import java.time.temporal.ChronoUnit
 import java.time.temporal.TemporalUnit
 import java.util.*
 import java.util.concurrent.TimeUnit
+import kotlin.math.roundToLong
 
 
 // Advice: always treat time as a Duration
@@ -37,13 +38,11 @@ class PaymentExternalSystemAdapterImpl(
     private val parallelRequests = properties.parallelRequests
 
 
-    private val timeUnit = TimeUnit.NANOSECONDS
-    private val time = requestAverageProcessingTime.get(timeUnit.toChronoUnit()) * 2
     private val client = OkHttpClient.Builder()
-        .connectTimeout(time, timeUnit)
-        .readTimeout(time, timeUnit)
-        .writeTimeout(time, timeUnit)
-        .retryOnConnectionFailure(false)
+        .connectTimeout(requestAverageProcessingTime.multipliedBy(2))
+        .readTimeout(requestAverageProcessingTime.multipliedBy(10))
+        .writeTimeout(requestAverageProcessingTime.multipliedBy(2))
+        .retryOnConnectionFailure(true)
         .build()
 
     private val fixedRateLimiter = FixedWindowRateLimiter(rateLimitPerSec, 1, TimeUnit.MILLISECONDS)
