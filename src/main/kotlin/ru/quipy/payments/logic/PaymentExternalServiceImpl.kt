@@ -4,17 +4,15 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.registerKotlinModule
 import okhttp3.*
 import org.slf4j.LoggerFactory
-import ru.quipy.common.utils.*
+import ru.quipy.common.utils.FixedWindowRateLimiter
+import ru.quipy.common.utils.NonBlockingOngoingWindow
 import ru.quipy.core.EventSourcingService
 import ru.quipy.payments.api.PaymentAggregate
 import java.net.SocketTimeoutException
 import java.time.Duration
-import java.time.temporal.ChronoUnit
-import java.time.temporal.TemporalUnit
 import java.util.*
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
-import kotlin.math.roundToLong
 
 
 // Advice: always treat time as a Duration
@@ -36,12 +34,16 @@ class PaymentExternalSystemAdapterImpl(
     private val rateLimitPerSec = properties.rateLimitPerSec
     private val parallelRequests = properties.parallelRequests
 
-
     private val client = OkHttpClient.Builder()
         .connectTimeout(requestAverageProcessingTime.multipliedBy(2))
         .readTimeout(requestAverageProcessingTime.multipliedBy(7))
         .writeTimeout(requestAverageProcessingTime.multipliedBy(2))
         .retryOnConnectionFailure(true)
+        .protocols(listOf(Protocol.H2_PRIOR_KNOWLEDGE))
+        .dispatcher(Dispatcher().apply {
+            maxRequests = 1000
+            maxRequestsPerHost = 1000
+        })
         .build()
 
     private val fixedRateLimiter = FixedWindowRateLimiter(rateLimitPerSec, 1, TimeUnit.MILLISECONDS)
@@ -64,10 +66,10 @@ class PaymentExternalSystemAdapterImpl(
             post(emptyBody)
         }.build()
 
+        fixedRateLimiter.tickBlocking()
+        nonBlockingOngoingWindow.putIntoWindow()
         var success = false
         while (!success && now() < deadline - requestAverageProcessingTime.toMillis()) {
-            fixedRateLimiter.tickBlocking()
-            nonBlockingOngoingWindow.putIntoWindow()
             client.newCall(request).enqueue(
                 object : Callback {
                     override fun onResponse(call: Call, response: Response) {
@@ -82,9 +84,9 @@ class PaymentExternalSystemAdapterImpl(
 
                         // Здесь мы обновляем состояние оплаты в зависимости от результата в базе данных оплат.
                         // Это требуется сделать ВО ВСЕХ ИСХОДАХ (успешная оплата / неуспешная / ошибочная ситуация)
-                        paymentESService.update(paymentId) {
-                            it.logProcessing(body.result, now(), transactionId, reason = body.message)
-                        }
+//                        paymentESService.update(paymentId) {
+//                            it.logProcessing(body.result, now(), transactionId, reason = body.message)
+//                        }
 
                         success = body.result
                         nonBlockingOngoingWindow.releaseWindow()
