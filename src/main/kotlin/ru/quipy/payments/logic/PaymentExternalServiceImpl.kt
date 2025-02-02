@@ -11,6 +11,8 @@ import ru.quipy.core.EventSourcingService
 import ru.quipy.payments.api.PaymentAggregate
 import java.net.SocketTimeoutException
 import java.time.Duration
+import java.time.temporal.ChronoUnit
+import java.time.temporal.TemporalUnit
 import java.util.*
 import java.util.concurrent.TimeUnit
 
@@ -34,12 +36,21 @@ class PaymentExternalSystemAdapterImpl(
     private val rateLimitPerSec = properties.rateLimitPerSec
     private val parallelRequests = properties.parallelRequests
 
-    private val client = OkHttpClient.Builder().build()
+
+    private val timeUnit = TimeUnit.NANOSECONDS
+    private val time = requestAverageProcessingTime.get(timeUnit.toChronoUnit()) * 2
+    private val client = OkHttpClient.Builder()
+        .connectTimeout(time, timeUnit)
+        .readTimeout(time, timeUnit)
+        .writeTimeout(time, timeUnit)
+        .retryOnConnectionFailure(false)
+        .build()
 
     private val fixedRateLimiter = FixedWindowRateLimiter(rateLimitPerSec, 1, TimeUnit.MILLISECONDS)
     private val nonBlockingOngoingWindow = NonBlockingOngoingWindow(parallelRequests)
 
     override fun performPaymentAsync(paymentId: UUID, amount: Int, paymentStartedAt: Long, deadline: Long) {
+
         fixedRateLimiter.tickBlocking()
         nonBlockingOngoingWindow.putIntoWindow()
 
