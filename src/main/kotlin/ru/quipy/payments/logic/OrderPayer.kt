@@ -21,7 +21,7 @@ class OrderPayer {
     @Autowired
     private lateinit var paymentService: PaymentService
 
-    private val paymentExecutor = Executors.newFixedThreadPool(50, NamedThreadFactory("payment-submission-executor"))
+    private val paymentExecutor = Executors.newFixedThreadPool(200, NamedThreadFactory("payment-submission-executor"))
 
     fun processPayment(orderId: UUID, amount: Int, paymentId: UUID, deadline: Long): Long {
         val createdAt = System.currentTimeMillis()
